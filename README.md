@@ -1,134 +1,185 @@
-JLinux
+# JLinux
 
-THIS IS ONLY AN EXPERIMENTAL CODE!
+Um "kernel Linux" simulado em **um único arquivo Java 17** (`JLinux.java`, sem pacote).
+Ele é um **servidor SSH**, tem uma **árvore de diretórios guardada em SQLite3**, um **terminal ANSI/xterm**
+completo (dá para fazer aplicações full-screen), um shell tipo `bash`, ~115 programas (~175 nomes de comando) e permite
+**várias VMs (instâncias de JLinux) na mesma JVM**, como um hypervisor.
 
-A simulated "Linux kernel" in a single Java 17 file (JLinux.java, no package).
+Todo programa é uma **classe Java que estende `JLinux`**.
 
-It is an SSH server, has a directory tree stored in SQLite3, a complete ANSI/xterm terminal (capable of running full-screen applications), a bash-like shell, approximately 115 programs (approximately 175 command names), and supports multiple VMs (JLinux instances) in the same JVM, acting as a hypervisor.
+```
+ssh -p 2222 root@localhost       # senha: root
+ssh -p 2222 user@localhost       # senha: user
+```
 
-Every program is a Java class that extends JLinux.
-ssh -p 2222 root@localhost       # password: root
-ssh -p 2222 user@localhost       # password: user
-Build and run
-Requirements: JDK 17 or later (the javac inside the VMs uses javax.tools, so a JDK is required, not just a JRE) and the sqlite-jdbc driver (the only dependency, located in lib/).
-./run.sh                                  # compiles if needed and starts (port 2222, jlinux.db image)
-./run.sh -n vm1 -p 2200 --vm vm2:2201 --vm vm3:2202:vm3.db   # multiple VMs
-Or manually:
+## Compilar e executar
+
+Requisitos: JDK 17 ou superior (o `javac` dentro das VMs usa `javax.tools`, por isso precisa ser JDK e não só JRE) e o driver `sqlite-jdbc` (única dependência, em `lib/`).
+
+```sh
+./run.sh                                  # compila se preciso e inicia (porta 2222, imagem jlinux.db)
+./run.sh -n vm1 -p 2200 --vm vm2:2201 --vm vm3:2202:vm3.db   # várias VMs
+```
+
+Ou à mão:
+
+```sh
 javac --release 17 -cp lib/sqlite-jdbc.jar -d classes JLinux.java
 java -cp classes:lib/sqlite-jdbc.jar JLinux --port 2222
-Create a .jar
-./mkjar.sh            # jlinux.jar (thin): keep lib/sqlite-jdbc.jar alongside it
-./mkjar.sh --fat      # self-contained jlinux.jar (~14 MB, with sqlite-jdbc bundled)
-./mkjar.sh -o x.jar   # use a different name
+```
+
+### Gerar um .jar
+
+```sh
+./mkjar.sh            # jlinux.jar (fino): mantenha lib/sqlite-jdbc.jar ao lado
+./mkjar.sh --fat      # jlinux.jar autossuficiente (~14 MB, com o sqlite-jdbc embutido)
+./mkjar.sh -o x.jar   # outro nome
 java -jar jlinux.jar --port 2222
-Options: -n/--name, -p/--port, -d/--db, --root-password, --listen ADDR, --vm NAME:PORT[:DB] (repeatable), -q, --no-console.
+```
 
-The VM disk is the SQLite file (NAME.db): everything written inside the VM persists across executions and reboots.
+Opções: `-n/--name`, `-p/--port`, `-d/--db`, `--root-password`, `--listen ADDR`, `--vm NOME:PORTA[:DB]` (repetível), `-q`, `--no-console`.
 
-Delete the .db file to start from scratch (mkfs runs automatically on the first boot).
-Hypervisor console (the terminal where Java was started)
-list, create NAME PORT [DB], start|stop|reboot NAME, destroy NAME [purge], info NAME, log NAME [N], exec NAME command..., quit.
+O disco da VM é o arquivo SQLite (`NOME.db`): tudo o que você grava dentro da VM persiste entre execuções e `reboot`s.
+Apague o `.db` para recomeçar do zero (o `mkfs` roda sozinho no primeiro boot).
 
-Inside a VM, root has vmctl (the same commands) and vmattach NAME (connects your terminal to another VM's console; Ctrl-] disconnects).
-SFTP
-The sshd starts with the sftp subsystem enabled (boot log: sshd: subsystem sftp enabled). It works with any client: sftp -P 2222 user@localhost, WinSCP, FileZilla, modern scp, and paramiko.
+### Console do hypervisor (terminal onde o java foi iniciado)
 
-It is implemented by the JLinux.SftpServer class (/usr/lib/sftp-server, SFTP v3 protocol plus OpenSSH posix-rename, hardlink, and fsync extensions), and runs with the credentials and permissions of the logged-in user. Supported operations include: ls, get/`put` (resuming from an offset), mkdir, rmdir, rm, rename, ln -s, chmod, chown, utime, and truncate.
+`list`, `create NOME PORTA [DB]`, `start|stop|reboot NOME`, `destroy NOME [purge]`, `info NOME`, `log NOME [N]`, `exec NOME comando...`, `quit`.
 
-Configure it in /etc/ssh/sshd_config: Subsystem sftp /usr/lib/sftp-server (default) or Subsystem sftp none to disable it.
-What's included
-Area	Contents
-SSH	SSH-2 implemented from scratch on top of the JDK: key exchange (curve25519-sha256 and diffie-hellman-group14-sha256/sha1), ed25519 and RSA host keys (rsa-sha2-256/512), aes128/192/256-ctr, hmac-sha2-256/512, hmac-sha1 and -etm variants, password and public-key authentication (~/.ssh/authorized_keys), pty, window-change, exec, rekey, and flow-control windows
-Terminal	Line discipline with a complete termios model (canonical/raw modes, VMIN/VTIME, ECHO/ECHOE/ECHOK/ECHOKE/ECHOCTL/ECHOPRT echo modes, ISIG, ^S/^Q, ^V, ^W, ^R, ICRNL/INLCR/IGNCR/IUCLC/ISTRIP, OPOST/OLCUC/OCRNL/ONLCR/TAB3, configurable special characters), and full stty; ANSI/xterm (16/256/truecolor, cursor, scrolling regions, alternate screen, SGR mouse, bracketed paste, resizing, UTF-8, wide characters)
-File system	Inodes/dentries/4 KB blocks in SQLite; permissions, setuid/setgid/sticky bits, symbolic and hard links, FIFOs, devices (/dev/null, zero, random, urandom, tty, pts/N), virtual /proc (cpuinfo, meminfo, uptime, loadavg, mounts, <pid>/...)
-Processes	Threads with PID/PGID/SID, signals, process groups, simulated fork/`exec`, /proc/<pid>, ps, top, kill
-Users	/etc/passwd, shadow, and group (PBKDF2 passwords), su, sudo, passwd, useradd/userdel/usermod/groupadd/groupdel/chpasswd
-Shell (sh, bash)	Pipelines, && || ;, &, subshells, if/while/until/for/case, functions, local, redirections and here-docs, $(...), backticks, $((...)), [[ ]], brace expansion, globbing, ${var:-x}, ${#x}, ${x#p}, ${x/a/b}…, indexed and associative arrays (a=(1 2), ${a[@]}, ${!a[@]}, declare -A, mapfile, read -a), trap, job control (jobs fg bg wait), history/`!!`, TAB completion, PS1
+Dentro de uma VM, o root tem `vmctl` (mesmos comandos) e `vmattach NOME` (liga o seu terminal ao console de outra VM; `Ctrl-]` desconecta).
 
+## SFTP
 
-Utilities (all implemented as Java classes)
-- Files: ls cp mv rm mkdir rmdir ln touch chmod chown chgrp stat cat tee more less head tail wc du df find tree file basename dirname realpath readlink mkfifo mknod mktemp truncate sync tar gzip gunzip zcat zip unzip dd md5sum sha*sum base64 od hexdump xxd cmp diff
-- Text: grep egrep fgrep sed awk(gawk) sort uniq cut tr paste comm fold nl rev tac expand strings column shuf seq expr bc xargs yes
-- System: ps top pgrep pkill killall kill sleep date cal uname hostname id whoami groups who w uptime free env printenv which clear reset tput stty tty dmesg nproc time timeout nohup watch getent mount lscpu man apropos
-- Accounts / power: su sudo passwd useradd userdel usermod groupadd groupdel chpasswd halt reboot poweroff shutdown init
-- Development: javac and java (compile and run inside the VM, for any user: the .class file is written to the current directory, or to -d DIR)
-- Full-screen: usermgr (user and group management; see below), nano (pico), vi (vim: normal/insert/visual modes, operators and motions, ., undo/redo, :s, :g, /, :w :q :wq), less/`more`, top, snake, matrix, life, clock, colors (ANSI test)
-- Hypervisor: vmctl, vmattach
-stty
-stty [-F DEVICE] [-a|-g] [CONFIG]... — compatible with GNU stty.
-- With no arguments, displays settings that differ from sane; -a displays everything (speed, rows/columns, special characters, min/`time`, control/input/output/local flags); -g prints a reusable string (stty $(stty -g) restores the settings); size, speed; -F /dev/pts/N operates on another terminal (root or the same user).
-- Flags (prefix with - to disable): parenb parodd cmspar hupcl cstopb cread clocal crtscts ignbrk brkint ignpar parmrk inpck istrip inlcr igncr icrnl ixon ixoff iuclc ixany imaxbel iutf8 opost olcuc ocrnl onlcr onocr onlret ofill ofdel isig icanon iexten echo echoe echok echonl noflsh xcase tostop echoprt echoctl echoke flusho extproc, cs5..cs8, nl0/1 cr0..3 tab0..3 bs0/1 vt0/1 ff0/1.
-- Special characters: intr quit erase kill eof eol eol2 swtch start stop susp rprnt werase lnext discard, with values such as ^C, ^?, ^-/`undef`, a single character, or a number; min N, time N, rows N, cols N, line N, ispeed/ospeed N, baud rate.
-- Combinations: sane raw cooked cbreak [-]lcase crt dec [-]decctlq ek [-]evenp [-]oddp [-]parity [-]nl [-]pass8 [-]litout hup tabs.
-- Actual effects: echo, canonical mode, VMIN/VTIME, ISIG/NOFLSH, ^S/^Q (ixon/`ixany`), lnext/`werase`/`rprnt`, erase/kill/eof/eol, CR/NL and uppercase/lowercase conversions, TAB3, window size. The following are only stored (they have no effect on a virtual terminal): parity, ixoff, break, delays, xcase, tostop, flusho, extproc, crtscts, speed.
-Java "Linux" programs (main) inside the VM
-Classes compiled inside the VM (or in -cp) with public static void main run as VM processes without modification, provided they use the terminal as they would on Linux:
-- System.in/out/err, new FileOutputStream(FileDescriptor.out), and new FileInputStream(FileDescriptor.in) are connected to the session terminal (the class loader rewrites these references).
-- new ProcessBuilder("sh","-c","stty raw -echo </dev/tty").start() runs inside the VM (same terminal, user, and files), with redirectErrorStream, inheritIO, environment(), and output reading. </dev/tty and >/dev/tty provide access to the actual terminal (stty and isatty work).
-- System.exit terminates only the program; terminal modes (termios) are restored when main finishes, including after an error or Ctrl-C.
-- Limitations: Runtime.exec(...) and ProcessBuilder.directory(File) are not redirected; Runtime.addShutdownHook runs only when the host JVM terminates; new FileOutputStream("file") writes to the host disk, not the VFS (use k/`JLinux` for the VFS).
-  
-Writing programs (classes that extend JLinux)
-Inside the VM:
-cp /usr/share/jlinux/examples/Hello.java . ; javac Hello.java ; java Hello a b     # classpath: -cp, $CLASSPATH, or the current directory
+O sshd já sobe com o subsistema **sftp** ativo (log de boot: `sshd: subsystem sftp enabled`). Funciona com qualquer cliente: `sftp -P 2222 user@localhost`, WinSCP, FileZilla, `scp` moderno, paramiko.
+Ele é a classe `JLinux.SftpServer` (`/usr/lib/sftp-server`, protocolo SFTP v3 + `posix-rename`, `hardlink` e `fsync` do OpenSSH), executada com as credenciais e permissões do usuário que logou: ls, get/put (retomada com offset), mkdir, rmdir, rm, rename, ln -s, chmod, chown, utime, truncate. Controle em `/etc/ssh/sshd_config`: `Subsystem sftp /usr/lib/sftp-server` (padrão) ou `Subsystem sftp none` para desligar.
+
+## O que tem dentro
+
+| Área | Conteúdo |
+|---|---|
+| **SSH** | SSH-2 escrito do zero sobre o JDK: kex `curve25519-sha256` e `diffie-hellman-group14-sha256/sha1`, host keys ed25519 e RSA (`rsa-sha2-256/512`), `aes128/192/256-ctr`, `hmac-sha2-256/512`, `hmac-sha1` e variantes `-etm`, senha e **chave pública** (`~/.ssh/authorized_keys`), pty, `window-change`, exec, rekey, janelas de fluxo |
+| **Terminal** | disciplina de linha com modelo termios completo (canônico/raw, VMIN/VTIME, eco ECHOE/ECHOK/ECHOKE/ECHOCTL/ECHOPRT, ISIG, ^S/^Q, ^V, ^W, ^R, ICRNL/INLCR/IGNCR/IUCLC/ISTRIP, OPOST/OLCUC/OCRNL/ONLCR/TAB3, caracteres especiais configuráveis) e `stty` completo, ANSI/xterm (cores 16/256/truecolor, cursor, regiões de rolagem, tela alternativa, mouse SGR, bracketed paste, redimensionamento, UTF‑8, caracteres largos) |
+| **Sistema de arquivos** | inodes/dentries/blocos de 4 KB no SQLite; permissões, setuid/setgid/sticky, links simbólicos e duros, fifos, dispositivos (`/dev/null zero random urandom tty pts/N`), `/proc` virtual (`cpuinfo meminfo uptime loadavg mounts <pid>/...`) |
+| **Processos** | threads com PID/PGID/SID, sinais, grupos de processos, `fork`/`exec` simulados, `/proc/<pid>`, `ps`, `top`, `kill` |
+| **Usuários** | `/etc/passwd shadow group` (senhas PBKDF2), `su`, `sudo`, `passwd`, `useradd/userdel/usermod/groupadd/groupdel/chpasswd` |
+| **Shell** (`sh`, `bash`) | pipelines, `&& \|\| ;`, `&`, subshells, `if/while/until/for/case`, funções, `local`, redirecionamentos e here-docs, `$(...)`, crases, `$((...))`, `[[ ]]`, expansão de chaves, globbing, `${var:-x}`, `${#x}`, `${x#p}`, `${x/a/b}`…, **arrays indexados e associativos** (`a=(1 2)`, `${a[@]}`, `${!a[@]}`, `declare -A`, `mapfile`, `read -a`), `trap`, job control (`jobs fg bg wait`), `history`/`!!`, completar com TAB, PS1 |
+
+### Utilitários (todos classes Java)
+
+* **Arquivos:** `ls cp mv rm mkdir rmdir ln touch chmod chown chgrp stat cat tee more less head tail wc du df find tree file basename dirname realpath readlink mkfifo mknod mktemp truncate sync tar gzip gunzip zcat zip unzip dd md5sum sha*sum base64 od hexdump xxd cmp diff`
+* **Texto:** `grep egrep fgrep sed awk(gawk) sort uniq cut tr paste comm fold nl rev tac expand strings column shuf seq expr bc xargs yes`
+* **Sistema:** `ps top pgrep pkill killall kill sleep date cal uname hostname id whoami groups who w uptime free env printenv which clear reset tput stty tty dmesg nproc time timeout nohup watch getent mount lscpu man apropos`
+* **Contas / energia:** `su sudo passwd useradd userdel usermod groupadd groupdel chpasswd halt reboot poweroff shutdown init`
+* **Desenvolvimento:** `javac` e `java` (compilam e rodam **dentro da VM**, para qualquer usuário: o `.class` vai para o diretório atual, ou `-d DIR`)
+* **Full-screen:** `usermgr` (cadastro de usuários e grupos, veja abaixo), `nano` (pico), `vi` (vim: modos normal/insert/visual, operadores+movimentos, `.`, undo/redo, `:s`, `:g`, `/`, `:w :q :wq`), `less`/`more`, `top`, `snake`, `matrix`, `life`, `clock`, `colors` (teste ANSI)
+* **Hypervisor:** `vmctl`, `vmattach`
+
+## stty
+
+`stty [-F DISPOSITIVO] [-a|-g] [CONFIG]...` — compatível com o GNU stty.
+
+* Sem argumentos mostra o que difere do `sane`; `-a` mostra tudo (velocidade, linhas/colunas, caracteres especiais, `min`/`time`, flags de controle/entrada/saída/local); `-g` imprime uma string reutilizável (`stty $(stty -g)` restaura); `size`, `speed`; `-F /dev/pts/N` age em outro terminal (root ou mesmo usuário).
+* Flags (com `-` para desligar): `parenb parodd cmspar hupcl cstopb cread clocal crtscts ignbrk brkint ignpar parmrk inpck istrip inlcr igncr icrnl ixon ixoff iuclc ixany imaxbel iutf8 opost olcuc ocrnl onlcr onocr onlret ofill ofdel isig icanon iexten echo echoe echok echonl noflsh xcase tostop echoprt echoctl echoke flusho extproc`, `cs5..cs8`, `nl0/1 cr0..3 tab0..3 bs0/1 vt0/1 ff0/1`.
+* Caracteres: `intr quit erase kill eof eol eol2 swtch start stop susp rprnt werase lnext discard` com `^C`, `^?`, `^-`/`undef`, um caractere ou número; `min N`, `time N`, `rows N`, `cols N`, `line N`, `ispeed/ospeed N`, velocidade em baud.
+* Combinações: `sane raw cooked cbreak [-]lcase crt dec [-]decctlq ek [-]evenp [-]oddp [-]parity [-]nl [-]pass8 [-]litout hup tabs`.
+* Efeito real: eco, canônico, VMIN/VTIME, ISIG/NOFLSH, ^S/^Q (ixon/ixany), lnext/werase/rprnt, erase/kill/eof/eol, conversões CR/NL e maiúsculas/minúsculas, TAB3, tamanho da janela. Apenas armazenados (sem efeito num terminal virtual): paridade, `ixoff`, break, atrasos, `xcase`, `tostop`, `flusho`, `extproc`, `crtscts`, velocidade.
+
+## Programas Java "de Linux" (main) dentro da VM
+
+Classes compiladas na VM (ou em `-cp`) com `public static void main` rodam como processos da VM, sem alteração, desde que usem o terminal como num Linux:
+
+* `System.in/out/err`, `new FileOutputStream(FileDescriptor.out)` e `new FileInputStream(FileDescriptor.in)` vão para o terminal da sessão (o carregador de classes reescreve essas referências).
+* `new ProcessBuilder("sh","-c","stty raw -echo </dev/tty").start()` executa dentro da VM (mesmo terminal, usuário e arquivos), com `redirectErrorStream`, `inheritIO`, `environment()` e leitura das saídas. `</dev/tty` e `>/dev/tty` entregam o terminal de verdade (`stty`, `isatty` funcionam).
+* `System.exit` encerra só o programa; os modos do terminal (termios) são restaurados quando o `main` termina, mesmo após erro ou Ctrl-C.
+* Limites: `Runtime.exec(...)` e `directory(File)` do ProcessBuilder não são redirecionados; `Runtime.addShutdownHook` roda só quando a JVM do host termina; `new FileOutputStream("arquivo")` grava no disco do host, não no VFS (use `k`/`JLinux` para o VFS).
+
+## Escrevendo programas (classes que estendem `JLinux`)
+
+Dentro da VM:
+
+```sh
+cp /usr/share/jlinux/examples/Hello.java . ; javac Hello.java ; java Hello a b     # classpath: -cp, $CLASSPATH ou o diretório atual
 mkdir -p ~/bin ; echo "#!java -cp $PWD Hello" > ~/bin/hello ; chmod +x ~/bin/hello ; ~/bin/hello
-# root, system-wide: javac -d /usr/local/lib/jlinux Hello.java ; echo '#!java Hello' > /usr/local/bin/hello
+# root, para todos: javac -d /usr/local/lib/jlinux Hello.java ; echo '#!java Hello' > /usr/local/bin/hello
+```
+
+```java
 public class Hello extends JLinux {
     public int run(String[] args) throws Exception {
         out.println("pid " + proc.pid + " user " + proc.user + " cwd " + cwd());
-        for (String l : linesOf("/etc/hostname")) out.println(l);   // inherited utilities
+        for (String l : linesOf("/etc/hostname")) out.println(l);   // utilitários herdados
         return 0;
     }
 }
-The VM's java command also runs regular classes with public static void main(String[]) that do not extend JLinux (for example, your own standalone class): System.in/out/err are connected to the session terminal, args works, and System.exit(n) only terminates the program (returns n to the shell; it does not shut down the JVM). Stubs such as #!java -cp DIR ClassName also work.
+```
 
-Limitations: no Swing/AWT and no ProcessBuilder for real operating-system commands.
+O `java` da VM também roda classes **comuns** com `public static void main(String[])`, que não estendem `JLinux` (por exemplo uma classe sua standalone): `System.in/out/err` ficam ligados ao terminal da sessão, `args` funciona e `System.exit(n)` só encerra o programa (devolve `n` ao shell, não derruba a JVM). Stubs `#!java -cp DIR Classe` também servem. Limites: sem Swing/AWT, sem `ProcessBuilder` para comandos do SO real.
 
-Inherited fields: k (kernel), proc, in, out, err. Useful methods: readFile, writeFile, list, stat, exec(...), env(), cwd(), sleep, tty(), isatty(fd).
+Campos herdados: `k` (kernel), `proc`, `in`, `out`, `err`. Métodos úteis: `readFile`, `writeFile`, `list`, `stat`, `exec(...)`, `env()`, `cwd()`, `sleep`, `tty()`, `isatty(fd)`.
+Também funciona no host: qualquer classe no *classpath* do Java que estenda `JLinux` pode ser instalada com um stub `#!java NomeDaClasse`.
 
-It also works on the host: any class on the Java classpath that extends JLinux can be installed using a #!java ClassName stub.
-User management (usermgr, alias cadusr)
-A full-screen application (class JLinux.Usermgr extends JLinux.App, file 82_app_users) that manages /etc/passwd, /etc/shadow, and /etc/group through the kernel itself:
-- Users and Groups tabs (Tab/F9), scrollable list, details panel (groups, open sessions, password status), search (/), sorting (s), hide system accounts (v), mouse support (click, double-click, wheel, F-key bar).
-- F3 adds a user (login, automatic UID, primary group or private group, name, home, shell, supplementary groups, password, creates the home directory using /etc/skel); F2/Enter edits (including renaming the login); F4 deletes (with or without the home directory); F5 changes the password; F6 locks/unlocks the account.
-- Validation (login, duplicate UID/GID, nonexistent groups, password mismatch), protection for root and the current account.
-- Only root can make changes; other users have read-only access. usermgr is located in /usr/sbin.
-External program (examples/Hello.java)
-examples/Hello.java is a separate class, outside JLinux.java, that writes to stdout and reads from stdin:
+### Cadastro de usuários (`usermgr`, apelido `cadusr`)
+
+Aplicação full-screen (classe `JLinux.Usermgr extends JLinux.App`, arquivo `82_app_users`) que mantém `/etc/passwd`, `/etc/shadow` e `/etc/group` pelo próprio kernel:
+
+* abas **Usuários** e **Grupos** (Tab/F9), lista com rolagem, painel de detalhes (grupos, sessões abertas, status da senha), busca (`/`), ordenação (`s`), ocultar contas de sistema (`v`), mouse (clique, duplo clique, roda, barra de F-keys);
+* **F3** inclui (login, UID automático, grupo primário ou grupo privado, nome, home, shell, grupos suplementares, senha, cria o home com `/etc/skel`), **F2/Enter** altera (inclusive renomear o login), **F4** exclui (com ou sem o home), **F5** troca a senha, **F6** bloqueia/desbloqueia;
+* validações (login, UID/GID duplicados, grupos inexistentes, senhas que não conferem), proteção do root e da própria conta;
+* só o root altera; os demais usuários têm visão somente leitura. `usermgr` fica em `/usr/sbin`.
+
+### Programa externo ao módulo (`examples/Hello.java`)
+
+`examples/Hello.java` é uma classe separada, fora do `JLinux.java`, que escreve em `stdout` e lê de `stdin`:
+
+```sh
 javac --release 17 -cp classes -d examples examples/Hello.java
-java -cp classes:lib/sqlite-jdbc.jar:examples JLinux          # examples is added to the host classpath
-# inside the VM:
+java -cp classes:lib/sqlite-jdbc.jar:examples JLinux          # examples entra no classpath do host
+# dentro da VM:
 echo '#!java Hello' > /usr/local/bin/hello ; chmod +x /usr/local/bin/hello
-hello                         # interactive
-printf 'Ana\nBob\n' | hello    # through a pipe
-Full-screen applications
-public class Demo extends JLinux.App {            // raw mode, alternate screen, resize, restoration on exit
+hello                         # interativo
+printf 'Ana\nBob\n' | hello    # via pipe
+```
+
+### Aplicações full-screen
+
+```java
+public class Demo extends JLinux.App {            // raw mode, tela alternativa, resize, restauração ao sair
     public int run(String[] a) {
         begin();
         try {
             while (true) {
                 scr.clear();
-                scr.put(2, 1, "Hello", S(10, -1, Screen.BOLD));   // x, y, text, style (fg, bg, attributes)
+                scr.put(2, 1, "Hello", S(10, -1, Screen.BOLD));   // x, y, texto, estilo(fg, bg, atributos)
                 scr.box(0, 0, W, H, S(8, -1, 0));
-                flush();                                           // sends only what changed
+                flush();                                           // só envia o que mudou
                 int k = key(200);                                  // Keys.UP, Keys.F1, 'q', Keys.RESIZE, ...
                 if (k == 'q') return 0;
             }
         } finally { end(); }
     }
 }
-Ansi, Keys, KeyReader, Screen (differential buffer with 256/RGB colors and wide characters), and LineEditor are available to any program.
-Multiple VMs
+```
+
+`Ansi`, `Keys`, `KeyReader`, `Screen` (buffer diferencial com cores 256/RGB, caracteres largos) e `LineEditor` estão disponíveis para qualquer programa.
+
+## Várias VMs
+
+```sh
 ./run.sh -n alpha -p 2200 --vm beta:2201 --vm gamma:2202
 ssh -p 2201 root@localhost
-Each VM has its own kernel, process table, users, .db, and SSH port. From inside alpha: vmctl create delta 2203, vmctl exec beta uname -n, vmattach beta.
-Tests performed
-I ran the VM and tested it over SSH using paramiko (an OpenSSH client was not installed) and a terminal emulator (pyte) to verify the full-screen applications: the kex/cipher/MAC/host-key combinations that paramiko can negotiate (curve25519-sha256@libssh.org, diffie-hellman-group14-sha256, all 3 ciphers, 5 MACs, and 3 host-key algorithms; the curve25519-sha256 key exchange under the RFC 8731 name and group14-sha1, which paramiko does not offer, were not tested), RSA public-key authentication, rekey during an active session, pty resizing, 3 MB output, interactive sessions (job control, Ctrl-C, here-doc, TAB, history), less, vi, nano, top, snake, life, clock, colors, tar/zip/gzip, sed/awk/grep/sort, javac/`java` inside the VM, two VMs running in parallel and vmattach, reboot with SQLite persistence, and a clean build using --release 17.
+```
 
-PuTTY and OpenSSH were not tested directly. The protocol follows RFC 4253/4252/4254 and paramiko is a strict client, but testing with your PuTTY client is still recommended.
-Known limitations
-- No SCP subsystem (modern scp uses SFTP and works), no port forwarding, and no simulated network (ping, ip, and netstat are unavailable).
-- Processes are Java threads: kill -STOP/TSTP (suspend) and real fork() are not available; Ctrl-Z does not suspend a process.
-- awk, sed, vi, the shell, and other tools are faithful subsets, but are not 100% identical to their originals (for example, vi has no macros/named registers; bash has no coproc, select, or process substitution <(...)).
-- local does not restore arrays when a function exits.
-- A .db image can be opened by only one VM at a time.
+Cada VM tem seu próprio kernel, tabela de processos, usuários, `.db` e porta SSH. De dentro de `alpha`: `vmctl create delta 2203`, `vmctl exec beta uname -n`, `vmattach beta`.
+
+## Testes realizados
+
+Executei a VM e a testei de verdade por SSH com **paramiko** (não havia cliente OpenSSH instalado) e com um emulador de terminal (**pyte**) para conferir a tela dos programas full-screen: as combinações de kex/cifra/MAC/host key que o paramiko consegue negociar (`curve25519-sha256@libssh.org`, `diffie-hellman-group14-sha256`, as 3 cifras, 5 MACs, 3 algoritmos de host key; os kex `curve25519-sha256` sob o nome RFC 8731 e `group14-sha1` o paramiko não oferece, ficaram sem teste), autenticação por chave RSA, rekey durante sessão ativa, resize do pty, saída de 3 MB, sessão interativa (job control, Ctrl‑C, here-doc, TAB, histórico), `less`, `vi`, `nano`, `top`, `snake`, `life`, `clock`, `colors`, `tar/zip/gzip`, `sed/awk/grep/sort`, `javac`/`java` dentro da VM, duas VMs em paralelo e `vmattach`, reboot com persistência no SQLite, compilação limpa com `--release 17`.
+O PuTTY e o OpenSSH não foram testados diretamente; o protocolo segue o RFC 4253/4252/4254 e o paramiko é um cliente estrito, mas vale um teste com o seu PuTTY.
+
+## Limitações conhecidas
+
+* Sem SCP (o `scp` moderno usa SFTP e funciona), sem port forwarding, sem rede simulada (`ping`, `ip`, `netstat` não existem).
+* Processos são threads Java: `kill -STOP/TSTP` (suspender) e `fork()` real não existem; `Ctrl-Z` não suspende.
+* `awk`, `sed`, `vi`, o shell etc. são subconjuntos fiéis mas não 100 % idênticos aos originais (por exemplo, `vi` sem macros/registradores nomeados; `bash` sem `coproc`, `select`, substituição de processo `<(...)`).
+* `local` não restaura arrays ao sair da função.
+* Uma imagem `.db` é aberta por uma VM por vez.
