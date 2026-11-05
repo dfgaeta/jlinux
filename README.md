@@ -1,7 +1,7 @@
 # JLinux
 
 Um "kernel Linux" simulado em **um único arquivo Java 17** (`JLinux.java`, sem pacote).
-Ele é um **servidor SSH**, tem uma **árvore de diretórios guardada em SQLite3**, um **terminal ANSI/xterm**
+Ele é um **servidor SSH**, tem uma **árvore de diretórios armazeada em SQLite3**, um **terminal ANSI/xterm**
 completo (dá para fazer aplicações full-screen), um shell tipo `bash`, ~115 programas (~175 nomes de comando) e permite
 **várias VMs (instâncias de JLinux) na mesma JVM**, como um hypervisor.
 
